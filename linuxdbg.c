@@ -3,7 +3,7 @@
 #include <linux/init.h>
 #include<linux/cdev.h>
 #include<linux/fs.h>
-#include <linux/io.h>
+
 #include <linux/device.h>
 #include <linux/uaccess.h>
 
@@ -11,9 +11,13 @@
 #include<linux/mm.h>
 #include<linux/slab.h>
 
-//定义一个led字符设备
+#include<linux/io.h>
+
+#include"linuxdbgioctl.h"
+
+//定义一个linuxdbg字符设备
 static struct cdev lnxdbg_cdev;
-//定义一个led设备号
+
 
 dev_t led_dev_num;
 
@@ -28,6 +32,32 @@ struct mm_struct *g_mm;
 
 
 #define phys_to_pfn(p) ((p) >> PAGE_SHIFT)
+
+
+
+static void print_vma(struct task_struct *task)
+{
+    struct mm_struct *mm;
+    struct vm_area_struct *vma;
+    int count = 0;
+    mm = task->mm;
+    pr_info("\nThis mm struct has %d vmas.\n", mm->map_count);
+    for (vma = mm->mmap; vma; vma = vma->vm_next)
+    {
+        printk("\nVma number %d:\n", ++count);
+	struct file *vmfile = vma ->vm_file;
+	if(vmfile)
+        	printk(" Starts at θx%lx,Ends at ox%lx flag %lx  file %s\n", vma->vm_start, vma->vm_end,vma->vm_flags ,vmfile->f_path.dentry->d_name.name);
+	else
+        	printk(" Starts at θx%lx,Ends at ox%lx flag %lx  file %s\n", vma->vm_start, vma->vm_end,vma->vm_flags ,"null");
+    }
+
+    pr_info("\nCode Segment start = 0x%lx,end = 0x%lx \n"
+    "Data Segment start = 0x%lx,end = 0x%lx\n"
+    "Stack Segment start ox%lx\n",mm->start_code, mm->end_code,mm->start_data, mm->end_data,mm->start_stack);
+
+}
+
 
 
 
@@ -79,11 +109,11 @@ static int  get_phys_content(unsigned long phys_addr)
 
 
 
-        printk("%02x %02x %02x %02x  %02x %02x %02x %02x", data[i++],data[i++],data[i++],data[i++]
-		,data[i++],data[i++],data[i++],data[i++]);
+    printk("%02x %02x %02x %02x  %02x %02x %02x %02x", data[i++],data[i++],data[i++],data[i++]
+    ,data[i++],data[i++],data[i++],data[i++]);
 
 
-printk("Page content in string %s\n",data);
+    //printk("Page content in string %s\n",data);
 
 
     return 0;
@@ -199,8 +229,13 @@ void print_page_tables(struct mm_struct *mm,unsigned long addr) {
 	, addr,pgd_val(*pgd),p4d_val(*p4d),pud_val(*pud),pmd_val(*pmd), pte_val(*pte),pfn);
 
 
-	page_content(pfn);
+    unsigned long physical_address = ((pfn * PAGE_SIZE) | addr & (PAGE_SIZE - 1));
+    get_phys_content(physical_address);
 
+
+    printk("------------------page content begin--------------------");
+	page_content(pfn);
+    printk("------------------page content end--------------------");
 	pte_unmap(pte);
     //}
 }
@@ -263,7 +298,7 @@ print_page_tables(g_mm,virtual_address);
 }
 
 
-#define IOCTL_GET_MM _IOR('E', 1, pid_t)
+
 
 static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
     pid_t pid;
@@ -291,6 +326,37 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             } else {
                 printk(KERN_INFO "PID: %d has no mm_struct (kernel thread or exited)\n", pid);
             }
+
+            break;
+
+        case IOCTL_PTE:
+            struct pte_args pte;
+            
+            if (copy_from_user(&pte, arg, sizeof(struct pte_args))) {
+                return -EFAULT;
+            }
+            pid_t pid = pte.pid;
+            unsigned long virtual_address = pte.address;
+            // Find the task_struct corresponding to the given PID
+            struct task_struct *target_task = pid_task(find_vpid(pid), PIDTYPE_PID);   
+            if (!target_task) {
+                printk(KERN_ERR "Cannot find task for PID %d\n", pid);
+                return -ESRCH;
+            }
+
+            // Get the mm_struct
+            struct mm_struct *target_mm = target_task->mm;
+
+            // Print out the mm_struct address for demonstration
+            if (target_mm) {
+                printk(KERN_INFO "PID: %d, mm_struct: %p\n", pid, target_mm);
+            } else {
+                printk(KERN_INFO "PID: %d has no mm_struct (kernel thread or exited)\n", pid);
+            }
+
+            printk(KERN_INFO "virtual_address from user mode %llx \n",virtual_address);
+            print_page_tables(target_mm,virtual_address);
+
 
             break;
 
