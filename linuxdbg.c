@@ -124,7 +124,7 @@ static int  get_phys_content(unsigned long phys_addr)
 // Function to convert user space virtual address to physical address
 unsigned long virt_to_phys_pgt(unsigned long virt_addr) {
     pgd_t *pgd;
-		p4d_t *p4d;
+	p4d_t *p4d;
     pud_t *pud;
     pmd_t *pmd;
     pte_t *pte;
