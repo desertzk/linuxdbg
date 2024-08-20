@@ -37,7 +37,6 @@ void pte(int fd,char *argv[]) {
     if (ioctl(fd, IOCTL_PTE, &args) < 0) {
         perror("ioctl failed");
         close(fd);
-        //return 1;
     }
 
     // Call the IOCTL
@@ -59,6 +58,16 @@ void pte(int fd,char *argv[]) {
 
 void print_vma(int fd,char *argv[]) {
     std::cout << "Stopping the process..." << std::endl;
+    pid_t pid = (pid_t)atoi(argv[2]);
+
+    printf("pid %d  \n",pid);
+
+
+    // Call the IOCTL
+    if (ioctl(fd, IOCTL_PRINT_VMA, &pid) < 0) {
+        perror("ioctl failed");
+        close(fd);
+    }
 }
 
 void edit_data(int fd,char *argv[]) {

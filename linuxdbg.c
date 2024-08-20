@@ -301,33 +301,34 @@ print_page_tables(g_mm,virtual_address);
 
 
 static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
+ 
+    struct task_struct *target_task=NULL;
     pid_t pid;
-
-
     switch (cmd) {
-        case IOCTL_GET_MM:
-            if (copy_from_user(&pid, (pid_t __user *)arg, sizeof(pid_t))) {
-                return -EFAULT;
-            }
+        // case IOCTL_GET_MM:
+        //     pid_t pid;
+        //     if (copy_from_user(&pid, (pid_t __user *)arg, sizeof(pid_t))) {
+        //         return -EFAULT;
+        //     }
 
-            // Find the task_struct corresponding to the given PID
-            g_task = pid_task(find_vpid(pid), PIDTYPE_PID);
-            if (!g_task) {
-                printk(KERN_ERR "Cannot find task for PID %d\n", pid);
-                return -ESRCH;
-            }
+        //     // Find the task_struct corresponding to the given PID
+        //     g_task = pid_task(find_vpid(pid), PIDTYPE_PID);
+        //     if (!g_task) {
+        //         printk(KERN_ERR "Cannot find task for PID %d\n", pid);
+        //         return -ESRCH;
+        //     }
 
-            // Get the mm_struct
-            g_mm = g_task->mm;
+        //     // Get the mm_struct
+        //     g_mm = g_task->mm;
 
-            // Print out the mm_struct address for demonstration
-            if (g_mm) {
-                printk(KERN_INFO "PID: %d, mm_struct: %p\n", pid, g_mm);
-            } else {
-                printk(KERN_INFO "PID: %d has no mm_struct (kernel thread or exited)\n", pid);
-            }
+        //     // Print out the mm_struct address for demonstration
+        //     if (g_mm) {
+        //         printk(KERN_INFO "PID: %d, mm_struct: %p\n", pid, g_mm);
+        //     } else {
+        //         printk(KERN_INFO "PID: %d has no mm_struct (kernel thread or exited)\n", pid);
+        //     }
 
-            break;
+        //     break;
 
         case IOCTL_PTE:
             struct pte_args pte;
@@ -335,10 +336,10 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             if (copy_from_user(&pte, arg, sizeof(struct pte_args))) {
                 return -EFAULT;
             }
-            pid_t pid = pte.pid;
+            pid = pte.pid;
             unsigned long virtual_address = pte.address;
             // Find the task_struct corresponding to the given PID
-            struct task_struct *target_task = pid_task(find_vpid(pid), PIDTYPE_PID);   
+            target_task = pid_task(find_vpid(pid), PIDTYPE_PID);   
             if (!target_task) {
                 printk(KERN_ERR "Cannot find task for PID %d\n", pid);
                 return -ESRCH;
@@ -356,11 +357,32 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             printk(KERN_INFO "virtual_address from user mode %llx \n",virtual_address);
             print_page_tables(target_mm,virtual_address);
-
-
             break;
 
+
+        case IOCTL_PRINT_VMA:
+            
+            if (copy_from_user(&pid, (pid_t __user *)arg, sizeof(pid_t))) {
+                return -EFAULT;
+            }
+
+            // Find the task_struct corresponding to the given PID
+            target_task = pid_task(find_vpid(pid), PIDTYPE_PID);
+            if (!target_task) {
+                printk(KERN_ERR "Cannot find task for PID %d\n", pid);
+                return -ESRCH;
+            }
+
+
+
+            // Print out the mm_struct address for demonstration
+
+            printk(KERN_INFO "PID: %d\n", pid);
+            print_vma(target_task);
+
+            break;
         default:
+            printk("unknow case\n");
             return -ENOTTY;
     }
 
