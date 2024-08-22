@@ -28,6 +28,9 @@ struct ed_args {
 #define IOCTL_PTE _IOR('E', 1, struct pte_args)
 #define IOCTL_PRINT_VMA _IOR('E', 1, pid_t)
 #define IOCTL_EDIT_DATA _IOR('E', 1, struct ed_args)
+#define IOCTL_DISPLAY_DATA _IOR('E', 1, struct dd_args)
+
+
 
 #endif // IOCTL_COMMON_H
 

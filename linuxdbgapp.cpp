@@ -72,6 +72,30 @@ void print_vma(int fd,char *argv[]) {
 
 void edit_data(int fd,char *argv[]) {
     std::cout << "Restarting the process..." << std::endl;
+
+    struct ed_args args;
+    // Get PID from the first argument
+    pid_t pid = (pid_t)atoi(argv[2]);
+
+    
+
+    unsigned long address;
+    char *caddress;
+    address = strtoul(argv[3], &caddress, 0);
+    args.pid = pid;
+    args.address = address;
+
+
+    strcpy(args.value,argv[4]);
+    printf("pid %d  address %lx \n",pid,address);
+
+
+    // Call the IOCTL
+    if (ioctl(fd, IOCTL_EDIT_DATA, &args) < 0) {
+        perror("ioctl failed");
+        close(fd);
+    }
+
 }
 
 void display_data(int fd,char *argv[]) {

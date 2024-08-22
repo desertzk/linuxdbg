@@ -10,7 +10,7 @@
 #include<linux/gfp.h>
 #include<linux/mm.h>
 #include<linux/slab.h>
-
+#include <linux/highmem.h>
 #include<linux/io.h>
 
 #include"linuxdbgioctl.h"
@@ -59,6 +59,22 @@ static void print_vma(struct task_struct *task)
 }
 
 
+static void modify_page_content_value(struct page *page, unsigned long offset, int value) {
+    void *vaddr;
+
+    // Map the page to a virtual address
+    vaddr = kmap(page);
+    if (!vaddr) {
+        pr_err("Failed to map page\n");
+        return;
+    }
+
+    // Modify the value at the specified offset within the page
+    *((int *)(vaddr + offset)) = value;
+
+    // Unmap the page
+    kunmap(page);
+}
 
 
 static int  page_content(unsigned long pfn)
@@ -94,7 +110,7 @@ static int  get_phys_content(unsigned long phys_addr)
 {
     struct page *page;
     
-    int i = 0;
+    //int i = 0;
     unsigned long pfn = phys_to_pfn(phys_addr);
     // Get the page structure for the given PFN
     page = pfn_to_page(pfn);
@@ -108,9 +124,11 @@ static int  get_phys_content(unsigned long phys_addr)
     printk("Page content in hex:\n");
 
 
-
-    printk("%02x %02x %02x %02x  %02x %02x %02x %02x", data[i++],data[i++],data[i++],data[i++]
-    ,data[i++],data[i++],data[i++],data[i++]);
+    // printk("%02x %02x %02x %02x  %02x %02x %02x %02x", data[i++],data[i++],data[i++],data[i++]
+    // ,data[i++],data[i++],data[i++],data[i++]);
+    printk("%02x %02x %02x %02x  %02x %02x %02x %02x\n", 
+           data[0], data[1], data[2], data[3], 
+           data[4], data[5], data[6], data[7]);
 
 
     //printk("Page content in string %s\n",data);
@@ -195,7 +213,7 @@ void print_page_tables(struct mm_struct *mm,unsigned long addr) {
         unsigned long p4dpfn = p4d_val(*p4d) & p4d_pfn_mask(*p4d);
 	if (p4d_none(*p4d) || p4d_bad(*p4d))
 		return;
-    printk("p4d 0x%x *pgd 0x%x pgd_page_vaddr(*pgd) 0x%lx p4dpfn 0x%x p4d_index %lx",p4d,*pgd,pgd_page_vaddr(*pgd),p4dpfn,p4d_index(addr));
+    printk("p4d 0x%x *pgd 0x%x pgd_page_vaddr(*pgd) 0x%lx p4dpfn 0x%lx p4d_index %lx",p4d,*pgd,pgd_page_vaddr(*pgd),p4dpfn,p4d_index(addr));
 	
 	
 	//p4d_pgtable(*p4d) + pud_index(address);
@@ -203,14 +221,14 @@ void print_page_tables(struct mm_struct *mm,unsigned long addr) {
         unsigned long pudpfn = pud_val(*pud) & pud_pfn_mask(*pud);
 	if (pud_none(*pud) || pud_bad(*pud))
 		return;
-    printk("pud 0x%x *p4d 0x%x p4d_pgtable(*p4d) 0x%lx pudpfn 0x%x p4d_index %lx",pud,*p4d,p4d_pgtable(*p4d),pudpfn,pud_index(addr));
+    printk("pud 0x%x *p4d 0x%x p4d_pgtable(*p4d) 0x%lx pudpfn 0x%lx p4d_index %lx",pud,*p4d,p4d_pgtable(*p4d),pudpfn,pud_index(addr));
 
 	//pud_pgtable(*pud) + pmd_index(address);
 	pmd = pmd_offset(pud, addr);
         unsigned long pmdpfn = pmd_val(*pmd) & pmd_pfn_mask(*pmd);
 	if (pmd_none(*pmd) || pmd_bad(*pmd))
 		return;
-    printk("pmd 0x%x *pud 0x%x pud_pgtable(*pud) 0x%lx pmdpfn  0x%x  pmd_index %lx",pmd,*pud,pud_pgtable(*pud),pmdpfn,pmd_index(addr));
+    printk("pmd 0x%x *pud 0x%x pud_pgtable(*pud) 0x%lx pmdpfn  0x%lx  pmd_index %lx",pmd,*pud,pud_pgtable(*pud),pmdpfn,pmd_index(addr));
 
 //return (pte_t *)pmd_page_vaddr(*pmd) + pte_index(address);
 	pte = pte_offset_map(pmd, addr);
@@ -299,6 +317,45 @@ print_page_tables(g_mm,virtual_address);
 
 
 
+int edit_user_data(struct mm_struct *mm,void __user *user_ptr, void *kernel_buffer, size_t size) {
+    struct page *pages[1];    // Assuming the data fits within a single page.
+    unsigned long user_address = (unsigned long)user_ptr;
+    unsigned long offset;
+    void *page_address;
+    int ret;
+    int locked = 1;
+    
+    // Pin the user page in memory
+    ret = pin_user_pages_remote(mm,
+			   user_address, 1,
+			   FOLL_WRITE, pages,
+			   NULL, &locked);
+    if (ret <= 0) {
+        pr_err("Failed to pin user pages %d\n",ret);
+        return ret;
+    }
+
+     
+
+    // Calculate offset within the page
+    offset = user_address & (PAGE_SIZE - 1);
+
+    // Map the page to kernel space
+    page_address = kmap(pages[0]);
+
+    // Copy data from user space to kernel buffer
+    memcpy(page_address + offset, kernel_buffer, size);
+
+    // Unmap the page
+    kunmap(pages[0]);
+
+    // Release the page
+    put_page(pages[0]);
+
+    return 0;
+}
+
+
 
 static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
  
@@ -361,7 +418,6 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 
         case IOCTL_PRINT_VMA:
-            
             if (copy_from_user(&pid, (pid_t __user *)arg, sizeof(pid_t))) {
                 return -EFAULT;
             }
@@ -372,15 +428,32 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 printk(KERN_ERR "Cannot find task for PID %d\n", pid);
                 return -ESRCH;
             }
-
-
-
             // Print out the mm_struct address for demonstration
-
             printk(KERN_INFO "PID: %d\n", pid);
             print_vma(target_task);
+            break;
+
+        case IOCTL_EDIT_DATA:
+        {
+            struct ed_args ed;
+
+            if (copy_from_user(&ed, arg, sizeof(struct ed_args))) {
+                return -EFAULT;
+            }
+            //char value[64]={0};
+            pid=ed.pid;
+            unsigned long virtual_address = ed.address;
+            // Find the task_struct corresponding to the given PID
+            target_task = pid_task(find_vpid(pid), PIDTYPE_PID);
+     
+            // Print out the mm_struct address for demonstration
+            printk(KERN_INFO "PID: %d address %x\n", pid,virtual_address);
+            edit_user_data(target_task->mm,virtual_address,ed.value,sizeof(ed.value));
 
             break;
+
+        }
+
         default:
             printk("unknow case\n");
             return -ENOTTY;
