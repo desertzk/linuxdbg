@@ -13,6 +13,12 @@
 #include <linux/highmem.h>
 #include<linux/io.h>
 
+#include <linux/init.h>
+#include <linux/vmalloc.h>
+#include <asm/page.h>       // For PAGE_OFFSET and VMALLOC_START
+#include <asm/pgtable.h>    // For __START_KERNEL_map and other kernel address macros
+
+
 #include"linuxdbgioctl.h"
 
 //定义一个linuxdbg字符设备
@@ -194,68 +200,122 @@ printk("Physical Address: 0x%lx",phys_addr);
 
 
 
+static int is_kernel_space(void *address) {
+    //unsigned long addr = (unsigned long) address;
+    printk("PAGE_OFFSET %lx VMALLOC_START %lx VMALLOC_END %lx __START_KERNEL_map %lx TASK_SIZE_MAX %lx\n",PAGE_OFFSET,VMALLOC_START,VMALLOC_END
+    ,__START_KERNEL_map,TASK_SIZE_MAX);
+
+
+    // Direct Mapping of Physical Memory
+    if (address >= (void *)PAGE_OFFSET && address < (void *)VMALLOC_START) {
+        printk(KERN_INFO "Address 0x%p is in the Direct Mapping of Physical Memory region.\n", address);
+        return 1; // Address is in kernel space
+    }
+    // VMALLOC Space
+    else if (address >= (void *)VMALLOC_START && address < (void *)VMALLOC_END) {
+        printk(KERN_INFO "Address 0x%p is in the VMALLOC region.\n", address);
+        return 1; // Address is in kernel space nded use page table
+    }
+    // Kernel Text and Data Mapping
+    else if (address >= (void *)__START_KERNEL_map ) {
+        printk(KERN_INFO "Address 0x%p is in the Kernel Text Mapping region.\n", address);
+        return 1; // Address is in kernel space
+    }
+    else if(address < (void *)TASK_SIZE_MAX)
+    {
+        printk("Address is in user space");
+        return 0; //need use page table
+    }
+    else {
+        printk("Address is in unknow space maybe device space hole space");
+        return 1; 
+    }
+
+    return 0;
+}
+
+
+
+
+
 void print_page_tables(struct mm_struct *mm,unsigned long addr) {
     pgd_t *pgd;
 	p4d_t *p4d;
     pud_t *pud;
     pmd_t *pmd;
     pte_t *pte;
+
+
+    if (virt_addr_valid(addr)) {
+        printk(KERN_INFO "Address 0x%lx is in the direct mapping region, no page table walk needed.\n", addr);
     
-//(pgd + pgd_index(address));
-    pgd = pgd_offset(mm, addr);
-	printk("(mm)->pgd 0x%x *pgd 0x%x pgd_index %x",pgd,*pgd,pgd_index(addr));
-	/*
-	if (!pgtable_l5_enabled())
-		return (p4d_t *)pgd;
-	return (p4d_t *)pgd_page_vaddr(*pgd) + p4d_index(address);
-	*/
-	p4d = p4d_offset(pgd, addr);
-        unsigned long p4dpfn = p4d_val(*p4d) & p4d_pfn_mask(*p4d);
-	if (p4d_none(*p4d) || p4d_bad(*p4d))
-		return;
-    printk("p4d 0x%x *pgd 0x%x pgd_page_vaddr(*pgd) 0x%lx p4dpfn 0x%lx p4d_index %lx",p4d,*pgd,pgd_page_vaddr(*pgd),p4dpfn,p4d_index(addr));
-	
-	
-	//p4d_pgtable(*p4d) + pud_index(address);
-	pud = pud_offset(p4d, addr);
-        unsigned long pudpfn = pud_val(*pud) & pud_pfn_mask(*pud);
-	if (pud_none(*pud) || pud_bad(*pud))
-		return;
-    printk("pud 0x%x *p4d 0x%x p4d_pgtable(*p4d) 0x%lx pudpfn 0x%lx p4d_index %lx",pud,*p4d,p4d_pgtable(*p4d),pudpfn,pud_index(addr));
+        
 
-	//pud_pgtable(*pud) + pmd_index(address);
-	pmd = pmd_offset(pud, addr);
-        unsigned long pmdpfn = pmd_val(*pmd) & pmd_pfn_mask(*pmd);
-	if (pmd_none(*pmd) || pmd_bad(*pmd))
-		return;
-    printk("pmd 0x%x *pud 0x%x pud_pgtable(*pud) 0x%lx pmdpfn  0x%lx  pmd_index %lx",pmd,*pud,pud_pgtable(*pud),pmdpfn,pmd_index(addr));
+        phys_addr_t phys_addr = virt_to_phys(addr);
 
-//return (pte_t *)pmd_page_vaddr(*pmd) + pte_index(address);
-	pte = pte_offset_map(pmd, addr);
-	if (pte_none(*pte))
-		return;
-    printk("pte 0x%x *pmd 0x%x pmd_page_vaddr(*pmd) 0x%lx  pte_index %lx",pte,*pmd,pmd_page_vaddr(*pmd), pte_index(addr));
+        get_phys_content(phys_addr);
+    
+    } else if (is_vmalloc_addr(addr)) {
+        printk(KERN_INFO "Address 0x%lx is in the vmalloc region, page table walk is needed.\n", addr);
+    } else {
+        printk(KERN_INFO "Address 0x%lx is in a region that likely requires a page table walk.\n", addr);
+    
+    
+    //(pgd + pgd_index(address));
+        pgd = pgd_offset(mm, addr);
+        printk("(mm)->pgd 0x%x *pgd 0x%x pgd_index %x",pgd,*pgd,pgd_index(addr));
+        /*
+        if (!pgtable_l5_enabled())
+            return (p4d_t *)pgd;
+        return (p4d_t *)pgd_page_vaddr(*pgd) + p4d_index(address);
+        */
+        p4d = p4d_offset(pgd, addr);
+            unsigned long p4dpfn = p4d_val(*p4d) & p4d_pfn_mask(*p4d);
+        if (p4d_none(*p4d) || p4d_bad(*p4d))
+            return;
+        printk("p4d 0x%x *pgd 0x%x pgd_page_vaddr(*pgd) 0x%lx p4dpfn 0x%lx p4d_index %lx",p4d,*pgd,pgd_page_vaddr(*pgd),p4dpfn,p4d_index(addr));
+        
+        
+        //p4d_pgtable(*p4d) + pud_index(address);
+        pud = pud_offset(p4d, addr);
+            unsigned long pudpfn = pud_val(*pud) & pud_pfn_mask(*pud);
+        if (pud_none(*pud) || pud_bad(*pud))
+            return;
+        printk("pud 0x%x *p4d 0x%x p4d_pgtable(*p4d) 0x%lx pudpfn 0x%lx p4d_index %lx",pud,*p4d,p4d_pgtable(*p4d),pudpfn,pud_index(addr));
 
-/*
-	phys_addr_t pfn = pte_val(pte);
-	pfn ^= protnone_mask(pfn);
-	return (pfn & PTE_PFN_MASK) >> PAGE_SHIFT;
-*/
-	unsigned long pfn = pte_pfn(*pte);
+        //pud_pgtable(*pud) + pmd_index(address);
+        pmd = pmd_offset(pud, addr);
+            unsigned long pmdpfn = pmd_val(*pmd) & pmd_pfn_mask(*pmd);
+        if (pmd_none(*pmd) || pmd_bad(*pmd))
+            return;
+        printk("pmd 0x%x *pud 0x%x pud_pgtable(*pud) 0x%lx pmdpfn  0x%lx  pmd_index %lx",pmd,*pud,pud_pgtable(*pud),pmdpfn,pmd_index(addr));
 
-	printk("Virtual Address: 0x%lx,pgd_val %lx p4d_val %lx pud_val %lx pmd_val %lx PTE Value: 0x%lx pfn 0x%lx\n"
-	, addr,pgd_val(*pgd),p4d_val(*p4d),pud_val(*pud),pmd_val(*pmd), pte_val(*pte),pfn);
+    //return (pte_t *)pmd_page_vaddr(*pmd) + pte_index(address);
+        pte = pte_offset_map(pmd, addr);
+        if (pte_none(*pte))
+            return;
+        printk("pte 0x%x *pmd 0x%x pmd_page_vaddr(*pmd) 0x%lx  pte_index %lx",pte,*pmd,pmd_page_vaddr(*pmd), pte_index(addr));
+
+    /*
+        phys_addr_t pfn = pte_val(pte);
+        pfn ^= protnone_mask(pfn);
+        return (pfn & PTE_PFN_MASK) >> PAGE_SHIFT;
+    */
+        unsigned long pfn = pte_pfn(*pte);
+
+        printk("Virtual Address: 0x%lx,pgd_val %lx p4d_val %lx pud_val %lx pmd_val %lx PTE Value: 0x%lx pfn 0x%lx\n"
+        , addr,pgd_val(*pgd),p4d_val(*p4d),pud_val(*pud),pmd_val(*pmd), pte_val(*pte),pfn);
 
 
-    unsigned long physical_address = ((pfn * PAGE_SIZE) | addr & (PAGE_SIZE - 1));
-    get_phys_content(physical_address);
+        unsigned long physical_address = ((pfn * PAGE_SIZE) | addr & (PAGE_SIZE - 1));
+        get_phys_content(physical_address);
 
 
-    printk("------------------page content begin--------------------");
-	page_content(pfn);
-    printk("------------------page content end--------------------");
-	pte_unmap(pte);
-    //}
+        printk("------------------page content begin--------------------");
+        page_content(pfn);
+        printk("------------------page content end--------------------");
+        pte_unmap(pte);
+    }
 }
 
 
@@ -280,10 +340,25 @@ int lnxdbg_close(struct inode *inode, struct file *file)
 
 
 // The read function
-ssize_t lnxdbg_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
+ssize_t lnxdbg_read(struct file *filp, char __user *buffer, size_t length, loff_t *offset)
 {
-    printk(KERN_INFO "Read operation called.\n");
-    return 0;
+    char *data = "Hello, World!\n"; // Example data to read
+    size_t datalen = strlen(data);
+
+    // Check if offset is beyond the data size
+    if (*offset >= datalen)
+        return 0; // EOF
+
+    // Adjust the length to avoid reading beyond the available data
+    if (length > datalen - *offset)
+        length = datalen - *offset;
+
+    // Copy data to user space
+    if (copy_to_user(buffer, data + *offset, length))
+        return -EFAULT; // Failed to copy data to user space
+
+    *offset += length; // Update the file offset
+    return length; // Return the number of bytes read
 }
 
 // The write function
@@ -404,6 +479,11 @@ static long lnxdbg_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
             // Get the mm_struct
             struct mm_struct *target_mm = target_task->mm;
+            if(is_kernel_space(virtual_address))
+            {
+                target_mm = current->mm;
+            }
+
 
             // Print out the mm_struct address for demonstration
             if (target_mm) {
