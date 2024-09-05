@@ -102,6 +102,16 @@ void display_data(int fd,char *argv[]) {
     std::cout << "Checking the status..." << std::endl;
 }
 
+void help(int fd,char *argv[]) {
+    std::cout << "Usage:  <command> <arg1> [arg2]\n"
+              << "Commands:\n"
+              << "  pte <pid> <address>     Modify page table entry  e.g./linuxdbgapp pte 28959 0x7fffca9fe000\n"
+              << "  pvma <pid>              Print VMA information\n"
+              << "  ed <pid> <address> <data> Edit process data  ./linuxdbgapp ed 26174 0x555555558040 'aaaaaaaa'\n"
+              << "  dd <pid> <address>      Display process data\n"
+              << std::endl;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -110,7 +120,8 @@ int main(int argc, char *argv[])
     char buffer[128];
 
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <command> <arg1> [arg2]" << std::endl;
+        //std::cerr << "Usage: " << argv[0] << " <command> <arg1> [arg2]" << std::endl;
+        help(fd,argv);
         return 1;
     }
 
@@ -131,7 +142,8 @@ int main(int argc, char *argv[])
         {"pte", pte},
         {"pvma", print_vma},
         {"ed", edit_data},
-        {"dd", display_data}
+        {"dd", display_data},
+        {"-help", help}
     };
 
 
